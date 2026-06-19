@@ -4,17 +4,26 @@ const zlib = require('zlib');
 function parseMultipart(buffer, contentType) {
   const boundaryMatch = contentType.match(/boundary=(.+)$/);
   if (!boundaryMatch) return null;
-  const boundary = '--' + boundaryMatch[1];
-  const parts = buffer.toString('binary').split(boundary);
+  const boundary = Buffer.from('--' + boundaryMatch[1]);
 
-  for (const part of parts) {
-    if (part.includes('filename=')) {
-      const headerEnd = part.indexOf('\r\n\r\n');
-      if (headerEnd === -1) continue;
-      let body = part.slice(headerEnd + 4);
-      body = body.replace(/\r\n--$/, '').replace(/\r\n$/, '');
-      return Buffer.from(body, 'binary');
+  let start = buffer.indexOf(boundary);
+  while (start !== -1) {
+    const nextBoundary = buffer.indexOf(boundary, start + boundary.length);
+    const partEnd = nextBoundary === -1 ? buffer.length : nextBoundary;
+    const part = buffer.slice(start + boundary.length, partEnd);
+
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd !== -1) {
+      const headers = part.slice(0, headerEnd).toString('utf8');
+      if (headers.includes('filename=')) {
+        let body = part.slice(headerEnd + 4);
+        if (body.slice(-2).toString() === '\r\n') {
+          body = body.slice(0, -2);
+        }
+        return body;
+      }
     }
+    start = nextBoundary;
   }
   return null;
 }
@@ -46,7 +55,6 @@ const server = http.createServer((req, res) => {
           return;
         }
         res.setHeader('Content-Type', 'application/gzip');
-        res.setHeader('Content-Disposition', 'attachment; filename="result.gz"');
         res.writeHead(200);
         res.end(compressed);
       });
@@ -60,4 +68,3 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(process.env.PORT || 3004, () => console.log('Running'));
-
